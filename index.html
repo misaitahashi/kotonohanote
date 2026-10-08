@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#8b4b20">
+<title>ことのはノート　検索ツール</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<style>
+:root{--brown:#8b4b20;--cream:#fffaf3;--line:#efd7c4;--ink:#222;--muted:#777;--green:#287448;--red:#9d3d31}
+*{box-sizing:border-box} body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Yu Gothic",Meiryo,sans-serif;color:var(--ink);background:#fffaf4}
+header{background:var(--brown);color:#fff;text-align:center;padding:20px 15px;position:sticky;top:0;z-index:20;box-shadow:0 2px 10px #0002}
+header h1{margin:0;font-size:23px} header p{margin:6px 0 0;font-size:12px;opacity:.9}
+main{max-width:920px;margin:auto;padding:18px 12px 60px}.card{background:#fff;border:1px solid #eadfd6;border-radius:16px;padding:16px;margin-bottom:15px;box-shadow:0 3px 12px #6b3b1b0d}
+.row{display:flex;gap:8px;align-items:center}.grow{flex:1;min-width:0}
+input,textarea,button{font:inherit} input,textarea{width:100%;border:1px solid #d8c8bc;border-radius:10px;padding:11px 12px;background:#fff}
+#search{font-size:18px} button{border:0;border-radius:10px;padding:11px 14px;background:var(--brown);color:#fff;font-weight:700;cursor:pointer}
+button.secondary{background:#eee6e0;color:#5a3926}button.danger{background:var(--red)}button.small{padding:7px 9px;font-size:12px}
+.hint,.note{font-size:12px;color:var(--muted);line-height:1.6;margin-top:8px}
+h2{font-size:16px;margin:0 0 12px}.result{border:1px solid #eadfd6;border-radius:13px;overflow:hidden;background:var(--cream);margin-top:10px}
+.resultTop{display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px dashed var(--line)}
+.num{width:42px;height:42px;flex:0 0 42px;border-radius:50%;background:var(--brown);color:#fff;display:grid;place-items:center;font-weight:800}
+.word{font-size:21px;font-weight:800}.reading{font-size:13px;color:#777;margin-left:6px}.body{padding:12px 14px}.label{font-size:11px;color:var(--brown);font-weight:800;letter-spacing:.06em}.meaning{font-size:15px;line-height:1.65;margin-top:2px}.english{margin-top:8px}
+.empty{text-align:center;color:#777;border:1px dashed #d8c8bc;border-radius:12px;padding:25px 10px;background:#fff}.empty strong{display:block;color:var(--brown);font-size:17px;margin-bottom:4px}
+.upload{border:2px dashed #d9b99f;border-radius:14px;padding:18px;text-align:center;background:#fffaf5}.upload input{display:none}.upload label{display:inline-block;padding:12px 16px;border-radius:10px;background:var(--brown);color:#fff;font-weight:800;cursor:pointer}
+.preview{max-width:100%;max-height:420px;border-radius:10px;margin:14px auto 0;display:none}
+.progress{height:10px;background:#eee3da;border-radius:99px;overflow:hidden;margin-top:12px}.bar{height:100%;width:0;background:var(--brown);transition:width .2s}
+#ocrStatus{font-size:13px;margin-top:9px;color:#6a5649}.ocrText{width:100%;min-height:130px;margin-top:10px;font-family:ui-monospace,monospace;font-size:12px}
+.candidate{border:1px solid #e5d7cd;border-radius:12px;padding:11px;margin-top:9px;background:#fffdfb}
+.candidateGrid{display:grid;grid-template-columns:70px 1fr 1fr;gap:7px}.candidateGrid .wide{grid-column:1/-1}
+.candidate .actions{display:flex;gap:6px;margin-top:8px}.candidate.removed{opacity:.45}
+.badge{font-size:11px;padding:3px 7px;border-radius:99px;background:#f2e6dc;color:#754625}
+.list{margin-top:8px}.item{display:flex;align-items:center;gap:9px;padding:9px 0;border-bottom:1px solid #eee3da}.item:last-child{border:0}.itemNum{width:35px;text-align:center;color:var(--brown);font-weight:800}.itemText{flex:1;min-width:0}.itemWord{font-weight:800}.itemMeaning{font-size:12px;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tools{display:flex;gap:5px}
+details summary{cursor:pointer;font-weight:800;color:var(--brown)} footer{text-align:center;color:#9a8a7d;font-size:11px;padding:8px}
+@media(max-width:650px){main{padding:12px 9px 45px}.card{padding:13px}.row{align-items:stretch}.row button{white-space:nowrap}.candidateGrid{grid-template-columns:62px 1fr}.candidateGrid .meaningCol{grid-column:1/-1}.word{font-size:19px}}
+</style>
+</head>
+<body>
+<header><h1>ことのはノート　検索ツール</h1><p>検索 ＋ 写真から単語を自動登録</p></header>
+<main>
+
+<section class="card">
+  <div class="row">
+    <div class="grow"><input id="search" type="search" placeholder="例：傾倒 / いさめる / legitimism" autocomplete="off"></div>
+    <button id="searchBtn">検索</button>
+  </div>
+  <div class="hint">日本語・読み・英語・意味から検索できます。部分一致にも対応。</div>
+</section>
+
+<section class="card">
+  <h2>検索結果</h2>
+  <div id="count" class="hint" style="margin:0"></div>
+  <div id="results"></div>
+</section>
+
+<section class="card">
+  <h2>📷 ノートの写真から自動登録</h2>
+  <div class="upload">
+    <label for="photo">写真を選ぶ</label>
+    <input id="photo" type="file" accept="image/*">
+    <div class="hint">スマホならカメラで撮った写真も選べます。まずは1ページずつがおすすめ。</div>
+    <img id="preview" class="preview">
+  </div>
+  <div id="ocrStatus"></div>
+  <div class="progress"><div id="bar" class="bar"></div></div>
+  <div id="candidateArea" style="display:none">
+    <div class="hint" style="margin-top:12px">読み取った候補です。間違いがあればここで直してから登録できます。</div>
+    <div id="candidates"></div>
+    <div class="row" style="margin-top:12px;justify-content:flex-end">
+      <button class="secondary" id="clearCandidates">候補を消す</button>
+      <button id="registerCandidates">チェックした候補を登録</button>
+    </div>
+  </div>
+  <details style="margin-top:13px">
+    <summary>OCRの生テキストを見る</summary>
+    <textarea id="ocrText" class="ocrText" readonly placeholder="写真を読み取るとここにOCR結果が出ます。"></textarea>
+  </details>
+  <div class="note">
+    写真の文字認識は100%正確ではありません。特に手書き文字は誤認識があり得るので、
+    「候補を確認 → 登録」という方式にしています。
+  </div>
+</section>
+
+<section class="card">
+  <details>
+    <summary>単語を手動で追加・編集する</summary>
+    <form id="wordForm" style="margin-top:14px">
+      <div class="candidateGrid">
+        <div><label>番号</label><input id="num" type="number" min="1" required></div>
+        <div><label>日本語</label><input id="word" required></div>
+        <div><label>読み</label><input id="reading"></div>
+        <div class="wide"><label>英語</label><input id="english"></div>
+        <div class="wide"><label>意味・例文</label><textarea id="meaning" rows="3"></textarea></div>
+      </div>
+      <div class="row" style="margin-top:9px"><button type="submit">保存</button><button type="button" class="secondary" id="clearForm">クリア</button></div>
+    </form>
+    <div class="row" style="margin-top:12px;flex-wrap:wrap">
+      <button class="secondary small" id="exportBtn">データを書き出す</button>
+      <label class="secondary small" style="cursor:pointer;padding:8px 10px;border-radius:10px;font-weight:700">
+        データを読み込む<input id="importFile" type="file" accept=".json" style="display:none">
+      </label>
+    </div>
+  </details>
+</section>
+
+<section class="card">
+  <div class="row" style="justify-content:space-between"><h2 style="margin:0">現在のノート一覧</h2><span id="total" class="hint" style="margin:0"></span></div>
+  <div id="list" class="list"></div>
+</section>
+
+<footer>ことのはノート　検索ツール</footer>
+</main>
+
+<script>
+const initialData=[
+{num:1,word:"傾倒",reading:"けいとう",english:"",meaning:"ある物事に深い心を寄せ、夢中になること"},
+{num:2,word:"当面",reading:"とうめん",english:"",meaning:"さし迫っていること"},
+{num:3,word:"正当",reading:"せいとう",english:"",meaning:"道理にかなっていること"},
+{num:4,word:"正統",reading:"せいとう",english:"",meaning:"正しい血統・血筋／創始者の考え・学説・思想などを正しく受け継いでいること"},
+{num:5,word:"正統主義",reading:"せいとうしゅぎ",english:"legitimism",meaning:"ウィーン会議の基本原則。タレーランが提唱した。フランス革命前の各国の王朝と体制を正統とみなし、その状態に戻そうとした考え。"},
+{num:6,word:"苛烈",reading:"かれつ",english:"",meaning:"厳しく激しいこと"},
+{num:7,word:"筆致",reading:"ひっち",english:"",meaning:"文字・文章・絵画などの書きぶり"},
+{num:8,word:"依然",reading:"いぜん",english:"",meaning:"もとのままであるさま"},
+{num:9,word:"依拠",reading:"いきょ",english:"",meaning:"あるものをよりどころとすること"},
+{num:10,word:"萎縮",reading:"いしゅく",english:"",meaning:"元気がなくなること。精神がのびやかでなくなること"},
+{num:11,word:"畏怖",reading:"いふ",english:"",meaning:"おそれおののくこと"},
+{num:12,word:"言いふくめる",reading:"いいふくめる",english:"",meaning:"納得がいくように言って聞かせる。あらかじめ話して承知させる"},
+{num:13,word:"うさんくさい",reading:"うさんくさい",english:"",meaning:"どことなく疑わしい。なんとなく怪しい"},
+{num:14,word:"見かけだおし",reading:"みかけだおし",english:"",meaning:"外見は立派であるが、実際は劣っていること"},
+{num:15,word:"諫める",reading:"いさめる",english:"",meaning:"正しい道のあり方を示して、悪い行いをやめさせたり、欠点を改めさせたりする"},
+{num:16,word:"逃げられない",reading:"にげられない",english:"",meaning:"避けることも退くこともできない。どうにもならない"},
+{num:17,word:"取り留めが無い",reading:"とりとめがない",english:"",meaning:"つかみどころがない"}
+];
+let data=JSON.parse(localStorage.getItem("kotonohanote-data")||"null")||initialData;
+let editingOriginalNum=null, candidates=[];
+
+function save(){data.sort((a,b)=>Number(a.num)-Number(b.num));localStorage.setItem("kotonohanote-data",JSON.stringify(data))}
+function norm(s){return String(s??"").normalize("NFKC").toLowerCase().replace(/[ \u3000]/g,"")}
+function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function matches(x,q){let n=norm(q);return [x.word,x.reading,x.english,x.meaning,x.num].some(v=>norm(v).includes(n))}
+function renderResults(q=""){
+ let found=q?data.filter(x=>matches(x,q)):[];
+ document.getElementById("count").textContent=q?`${found.length}件`:"調べたい言葉を入力してください";
+ const box=document.getElementById("results");
+ if(!q){box.innerHTML=`<div class="empty"><strong>ノート検索</strong>上の検索欄に言葉を入力してください。</div>`;return}
+ if(!found.length){box.innerHTML=`<div class="empty"><strong>ノートには見つかりませんでした</strong>「${esc(q)}」は現在の登録データにありません。</div>`;return}
+ box.innerHTML=found.map(x=>`<article class="result"><div class="resultTop"><div class="num">${x.num}</div><div><span class="word">${esc(x.word)}</span>${x.reading?`<span class="reading">${esc(x.reading)}</span>`:""}</div></div><div class="body"><div class="label">意味・例文</div><div class="meaning">${esc(x.meaning||"—")}</div>${x.english?`<div class="english"><span class="label">ENGLISH</span><br>${esc(x.english)}</div>`:""}</div></article>`).join("");
+}
+function renderList(){
+ document.getElementById("total").textContent=`${data.length}語`;
+ document.getElementById("list").innerHTML=data.map(x=>`<div class="item"><div class="itemNum">${x.num}</div><div class="itemText"><div class="itemWord">${esc(x.word)} ${x.reading?`<span style="font-size:12px;color:#888;font-weight:400">（${esc(x.reading)}）</span>`:""}</div><div class="itemMeaning">${esc(x.meaning||"")}</div></div><div class="tools"><button class="secondary small" onclick="editItem(${x.num})">編集</button><button class="danger small" onclick="deleteItem(${x.num})">削除</button></div></div>`).join("");
+}
+function nextNum(){return data.length?Math.max(...data.map(x=>Number(x.num)))+1:1}
+function resetForm(){editingOriginalNum=null;document.getElementById("wordForm").reset();document.getElementById("num").value=nextNum()}
+function editItem(num){let x=data.find(a=>Number(a.num)===Number(num));if(!x)return;editingOriginalNum=x.num;["num","word","reading","english","meaning"].forEach(k=>document.getElementById(k).value=x[k]??"");document.querySelector("section.card details").open=true;document.getElementById("word").focus()}
+function deleteItem(num){let x=data.find(a=>Number(a.num)===Number(num));if(!x||!confirm(`「${x.word}（${x.num}番）」を削除しますか？`))return;data=data.filter(a=>Number(a.num)!==Number(num));save();renderList();renderResults(document.getElementById("search").value)}
+document.getElementById("search").addEventListener("input",e=>renderResults(e.target.value));
+document.getElementById("searchBtn").onclick=()=>renderResults(document.getElementById("search").value);
+document.getElementById("search").addEventListener("keydown",e=>{if(e.key==="Enter")renderResults(e.target.value)});
+
+document.getElementById("wordForm").onsubmit=e=>{
+ e.preventDefault();let x={num:Number(num.value),word:word.value.trim(),reading:reading.value.trim(),english:english.value.trim(),meaning:meaning.value.trim()};if(!x.word)return;
+ if(editingOriginalNum!==null){let i=data.findIndex(a=>Number(a.num)===Number(editingOriginalNum));if(i>=0)data[i]=x}else data.push(x);
+ save();renderList();resetForm();alert("保存しました！");
+};
+document.getElementById("clearForm").onclick=resetForm;
+document.getElementById("exportBtn").onclick=()=>{let b=new Blob([JSON.stringify(data,null,2)],{type:"application/json"}),u=URL.createObjectURL(b),a=document.createElement("a");a.href=u;a.download="ことのはノート_データ.json";a.click();URL.revokeObjectURL(u)};
+document.getElementById("importFile").onchange=e=>{let f=e.target.files[0];if(!f)return;let r=new FileReader();r.onload=()=>{try{let a=JSON.parse(r.result);if(!Array.isArray(a))throw 0;data=a.map(x=>({num:Number(x.num),word:String(x.word||""),reading:String(x.reading||""),english:String(x.english||""),meaning:String(x.meaning||"")})).filter(x=>x.word);save();renderList();renderResults(search.value);alert(`${data.length}語を読み込みました！`)}catch{alert("正しいJSONファイルを選んでください。")}};r.readAsText(f)};
+
+// ---------- OCR ----------
+const photo=document.getElementById("photo"), preview=document.getElementById("preview"), status=document.getElementById("ocrStatus"), bar=document.getElementById("bar"), ocrText=document.getElementById("ocrText");
+photo.onchange=async e=>{
+ const file=e.target.files[0]; if(!file)return;
+ preview.src=URL.createObjectURL(file);preview.style.display="block";
+ status.textContent="写真を準備しています…";bar.style.width="3%";document.getElementById("candidateArea").style.display="none";
+ try{
+   status.textContent="文字認識エンジンを読み込んでいます（初回は少し時間がかかります）…";bar.style.width="8%";
+   const worker=await Tesseract.createWorker("jpn+eng",1,{logger:m=>{
+     if(m.status){status.textContent=`${m.status} ${m.progress?Math.round(m.progress*100)+"%":""}`;bar.style.width=Math.max(8,Math.round((m.progress||0)*90))+"%"}
+   }});
+   const ret=await worker.recognize(file,{rotateAuto:true},{});
+   await worker.terminate();
+   const text=ret.data.text||"";ocrText.value=text;bar.style.width="100%";
+   candidates=parseOCR(text);
+   renderCandidates();
+   document.getElementById("candidateArea").style.display="block";
+   status.textContent=`読み取り完了。${candidates.length}件の候補を作りました。`;
+ }catch(err){console.error(err);status.textContent="OCRに失敗しました。通信状態を確認して、もう一度試してください。";bar.style.width="0%"}
+};
+
+function cleanLine(s){return s.replace(/\r/g,"").replace(/[|｜]/g," ").replace(/\s+/g," ").trim()}
+function parseOCR(text){
+ const lines=text.split("\n").map(cleanLine).filter(x=>x.length>=2);
+ let start=nextNum(), out=[];
+ for(let line of lines){
+   // OCRが行頭の番号を拾った場合はその番号を使う。拾わなければ連番を振る。
+   let m=line.match(/^(\d{1,3})[\s.)、．:：-]*(.*)$/);
+   let num=m?Number(m[1]):start+out.length;
+   let rest=m?m[2].trim():line;
+   if(!rest)continue;
+   // 表の罫線や単独の数字だけの行は除外
+   if(/^[\d\s\-_=]+$/.test(rest))continue;
+   // 日本語/英語をざっくり分離。意味欄まで含め、最終確認画面で編集できる。
+   let english="", japanese=rest;
+   let em=rest.match(/\b[A-Za-z][A-Za-z0-9' -]{2,}\b/g);
+   if(em){english=em.join(" ").trim();japanese=rest.replace(/\b[A-Za-z][A-Za-z0-9' -]{2,}\b/g," ").replace(/\s+/g," ").trim()}
+   // 明らかにヘッダーを除く
+   if(/^(番号|定着度|日本語|英語|意味と例文|意味|例文)$/i.test(japanese))continue;
+   out.push({num,word:japanese,reading:"",english,meaning:"",keep:true});
+ }
+ // 同じ行の重複・短すぎる候補を少し整理
+ let seen=new Set();
+ return out.filter(x=>{let k=norm(x.word);if(k.length<2||seen.has(k))return false;seen.add(k);return true});
+}
+function renderCandidates(){
+ const box=document.getElementById("candidates");
+ if(!candidates.length){box.innerHTML=`<div class="empty">候補を作れませんでした。OCRの生テキストを見ながら手動追加できます。</div>`;return}
+ box.innerHTML=candidates.map((x,i)=>`<div class="candidate ${x.keep?"":"removed"}" data-i="${i}">
+ <span class="badge">候補 ${i+1}</span>
+ <div class="candidateGrid" style="margin-top:7px">
+  <div><label>番号</label><input class="cnum" type="number" value="${x.num}"></div>
+  <div><label>日本語</label><input class="cword" value="${escAttr(x.word)}"></div>
+  <div><label>読み</label><input class="creading" value="${escAttr(x.reading)}"></div>
+  <div class="wide"><label>英語</label><input class="cenglish" value="${escAttr(x.english)}"></div>
+  <div class="wide meaningCol"><label>意味・例文</label><textarea class="cmeaning" rows="2">${esc(x.meaning)}</textarea></div>
+ </div>
+ <div class="actions"><button class="secondary small" onclick="toggleCandidate(${i})">${x.keep?"この候補を除外":"候補に戻す"}</button></div>
+ </div>`).join("");
+}
+function escAttr(s){return String(s??"").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
+function toggleCandidate(i){candidates[i].keep=!candidates[i].keep;renderCandidates()}
+document.getElementById("clearCandidates").onclick=()=>{candidates=[];document.getElementById("candidateArea").style.display="none"};
+document.getElementById("registerCandidates").onclick=()=>{
+ const els=[...document.querySelectorAll(".candidate")];
+ let added=0;
+ els.forEach((el,i)=>{
+   if(!candidates[i].keep)return;
+   candidates[i].num=Number(el.querySelector(".cnum").value)||nextNum()+added;
+   candidates[i].word=el.querySelector(".cword").value.trim();
+   candidates[i].reading=el.querySelector(".creading").value.trim();
+   candidates[i].english=el.querySelector(".cenglish").value.trim();
+   candidates[i].meaning=el.querySelector(".cmeaning").value.trim();
+   if(!candidates[i].word)return;
+   // 同じ番号が既にある場合は空いている番号へ自動移動
+   if(data.some(x=>Number(x.num)===Number(candidates[i].num))) candidates[i].num=nextNum()+added;
+   data.push({...candidates[i]});added++;
+ });
+ save();renderList();renderResults(search.value);
+ alert(`${added}件をノートに登録しました！`);
+ candidates=[];document.getElementById("candidateArea").style.display="none";
+};
+
+save();renderList();renderResults();resetForm();
+</script>
+</body>
+</html>
